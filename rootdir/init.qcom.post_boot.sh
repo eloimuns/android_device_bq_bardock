@@ -80,7 +80,6 @@ function 8953_sched_dcvs_hmp()
 
 }
 
-
 target=`getprop ro.board.platform`
 
 function configure_zram_parameters() {
@@ -126,7 +125,6 @@ function configure_memory_parameters() {
     # 32 bit will have 53K & 64 bit will have 81K
     #
 
-    ProductName=`getprop ro.product.name`
     low_ram=`getprop ro.config.low_ram`
 
     arch_type=`uname -m`
@@ -426,14 +424,19 @@ case "$emmc_boot"
 esac
 
 
-# Post Setup Services
-echo 128 > /sys/block/mmcblk0/bdi/read_ahead_kb
-echo 128 > /sys/block/mmcblk0/queue/read_ahead_kb
-echo 128 > /sys/block/dm-0/queue/read_ahead_kb
-echo 128 > /sys/block/dm-1/queue/read_ahead_kb
-echo 128 > /sys/block/mmcblk0rpmb/bdi/read_ahead_kb
-echo 128 > /sys/block/mmcblk0rpmb/queue/read_ahead_kb
-setprop sys.post_boot.parsed 1
+# Post-setup services
+case "$target" in
+    "msm8937" | "msm8953")
+	echo 128 > /sys/block/mmcblk0/bdi/read_ahead_kb
+	echo 128 > /sys/block/mmcblk0/queue/read_ahead_kb
+	echo 128 > /sys/block/dm-0/queue/read_ahead_kb
+	echo 128 > /sys/block/dm-1/queue/read_ahead_kb
+	echo 128 > /sys/block/mmcblk0rpmb/bdi/read_ahead_kb
+	echo 128 > /sys/block/mmcblk0rpmb/queue/read_ahead_kb
+	setprop sys.post_boot.parsed 1
+
+    ;;
+esac
 
 # Let kernel know our image version/variant/crm_version
 if [ -f /sys/devices/soc0/select_image ]; then

@@ -1,4 +1,5 @@
 #!/vendor/bin/sh
+
 # Copyright (c) 2012-2013,2016 The Linux Foundation. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,7 +27,7 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-export PATH=/system/bin
+export PATH=/vendor/bin
 
 # Set platform variables
 if [ -f /sys/devices/soc0/hw_platform ]; then
@@ -52,12 +53,107 @@ fi
 
 log -t BOOT -p i "MSM target '$1', SoC '$soc_hwplatform', HwID '$soc_hwid', SoC ver '$soc_hwver'"
 
-target=`getprop ro.board.platform`
-cap_ver=`cat /sys/devices/soc/1d00000.qcom,vidc/capability_version` 2> /dev/null
-if [ $cap_ver -eq 1 ]; then
-	setprop media.msm8953.version 1
-	setprop media.settings.xml /etc/media_profiles_8953_v1.xml
+#For drm based display driver
+vbfile=/sys/module/drm/parameters/vblankoffdelay
+if [ -w $vbfile ]; then
+    echo -1 >  $vbfile
+else
+    log -t DRM_BOOT -p w "file: '$vbfile' or perms doesn't exist"
 fi
+
+function set_density_by_fb() {
+    #put default density based on width
+    if [ -z $fb_width ]; then
+        setprop ro.sf.lcd_density 320
+    else
+        if [ $fb_width -ge 1440 ]; then
+           setprop ro.sf.lcd_density 560
+        elif [ $fb_width -ge 1080 ]; then
+           setprop ro.sf.lcd_density 480
+        elif [ $fb_width -ge 720 ]; then
+           setprop ro.sf.lcd_density 320 #for 720X1280 resolution
+        elif [ $fb_width -ge 480 ]; then
+            setprop ro.sf.lcd_density 240 #for 480X854 QRD resolution
+        else
+            setprop ro.sf.lcd_density 160
+        fi
+    fi
+}
+target=`getprop ro.board.platform`
+case "$target" in
+    "msm8953")
+        cap_ver=`cat /sys/devices/soc/1d00000.qcom,vidc/capability_version` 2> /dev/null
+        if [ $cap_ver -eq 1 ]; then
+            setprop media.msm8953.version 1
+        fi
+        ;;
+esac
+
+if [ -f /firmware/verinfo/ver_info.txt ]; then
+    # In mpss AT version is greater than 3.1, need
+    # to use the new vendor-ril which supports L+L feature
+    # otherwise use the existing old one.
+    modem=`cat /firmware/verinfo/ver_info.txt |
+            sed -n 's/^[^:]*modem[^:]*:[[:blank:]]*//p' |
+            sed 's/.*MPSS.\(.*\)/\1/g' | cut -d \. -f 1`
+    if [ "$modem" = "AT" ]; then
+        version=`cat /firmware/verinfo/ver_info.txt |
+                sed -n 's/^[^:]*modem[^:]*:[[:blank:]]*//p' |
+                sed 's/.*AT.\(.*\)/\1/g' | cut -d \- -f 1`
+        if [ ! -z $version ]; then
+            zygote=`getprop ro.zygote`
+            case "$zygote" in
+                "zygote64_32")
+                    if [ "$version" \< "3.1" ]; then
+                        setprop vendor.rild.libpath "/vendor/lib64/libril-qc-qmi-1.so"
+                    else
+                        setprop vendor.rild.libpath "/vendor/lib64/libril-qc-hal-qmi.so"
+                    fi
+                    ;;
+                "zygote32")
+                    if [ "$version" \< "3.1" ]; then
+                        echo "legacy qmi load for TA less than 3.1"
+                        setprop vendor.rild.libpath "/vendor/lib/libril-qc-qmi-1.so"
+                    else
+                        setprop vendor.rild.libpath "/vendor/lib/libril-qc-hal-qmi.so"
+                    fi
+                    ;;
+            esac
+        fi
+    # In mpss TA version is greater than 3.0, need
+    # to use the new vendor-ril which supports L+L feature
+    # otherwise use the existing old one.
+    elif [ "$modem" = "TA" ]; then
+        version=`cat /firmware/verinfo/ver_info.txt |
+                sed -n 's/^[^:]*modem[^:]*:[[:blank:]]*//p' |
+                sed 's/.*TA.\(.*\)/\1/g' | cut -d \- -f 1`
+        if [ ! -z $version ]; then
+            zygote=`getprop ro.zygote`
+            case "$zygote" in
+                "zygote64_32")
+                    if [ "$version" \< "3.0" ]; then
+                        setprop vendor.rild.libpath "/vendor/lib64/libril-qc-qmi-1.so"
+                    else
+                        setprop vendor.rild.libpath "/vendor/lib64/libril-qc-hal-qmi.so"
+                    fi
+                    ;;
+                "zygote32")
+                    if [ "$version" \< "3.0" ]; then
+                        setprop vendor.rild.libpath "/vendor/lib/libril-qc-qmi-1.so"
+                    else
+                        setprop vendor.rild.libpath "/vendor/lib/libril-qc-hal-qmi.so"
+                    fi
+                    ;;
+            esac
+        fi
+    fi;
+fi
+
+#set default lcd density
+#Since lcd density has read only
+#property, it will not overwrite previous set
+#property if any target is setting forcefully.
+set_density_by_fb
 
 # Setup display nodes & permissions
 # HDMI can be fb1 or fb2
@@ -84,6 +180,7 @@ function setHDMIPermission() {
    set_perms $file/s3d_mode system.graphics 0664
    set_perms $file/dynamic_fps system.graphics 0664
    set_perms $file/msm_fb_dfps_mode system.graphics 0664
+   set_perms $file/hdr_stream system.graphics 0664
    set_perms $file/cec/enable system.graphics 0664
    set_perms $file/cec/logical_addr system.graphics 0664
    set_perms $file/cec/rd_msg system.graphics 0664
@@ -91,60 +188,71 @@ function setHDMIPermission() {
    set_perms $file/cec/wr_msg system.graphics 0600
    set_perms $file/hdcp/tp system.graphics 0664
    set_perms $file/hdmi_audio_cb audioserver.audio 0600
+   set_perms $file/pll_enable system.graphics 0664
+   set_perms $file/hdmi_ppm system.graphics 0664
+
    ln -s $dev_file $dev_gfx_hdmi
 }
 
-# check for HDMI connection
-for fb_cnt in 0 1 2 3
-do
-    file=/sys/class/graphics/fb$fb_cnt/msm_fb_panel_info
+# check for the type of driver FB or DRM
+fb_driver=/sys/class/graphics/fb0
+if [ -e "$fb_driver" ]
+then
+    # check for HDMI connection
+    for fb_cnt in 0 1 2 3
+    do
+        file=/sys/class/graphics/fb$fb_cnt/msm_fb_panel_info
+        if [ -f "$file" ]
+        then
+          cat $file | while read line; do
+            case "$line" in
+                *"is_pluggable"*)
+                 case "$line" in
+                      *"1"*)
+                      setHDMIPermission $fb_cnt
+                 esac
+            esac
+          done
+        fi
+    done
+
+    # check for mdp caps
+    file=/sys/class/graphics/fb0/mdp/caps
     if [ -f "$file" ]
     then
-      cat $file | while read line; do
-        case "$line" in
-            *"is_pluggable"*)
-             case "$line" in
-                  *"1"*)
-                  setHDMIPermission $fb_cnt
-             esac
-        esac
-      done
+        setprop debug.gralloc.gfx_ubwc_disable 1
+        cat $file | while read line; do
+          case "$line" in
+                    *"ubwc"*)
+                    setprop debug.gralloc.enable_fb_ubwc 1
+                    setprop debug.gralloc.gfx_ubwc_disable 0
+                esac
+        done
     fi
-done
 
-# check for mdp caps
-setprop debug.gralloc.gfx_ubwc_disable 1
-file=/sys/class/graphics/fb0/mdp/caps
-if [ -f "$file" ]
-then
-    cat $file | while read line; do
-      case "$line" in
-                *"ubwc"*)
-                setprop debug.gralloc.enable_fb_ubwc 1
-                setprop debug.gralloc.gfx_ubwc_disable 0
-            esac
+    file=/sys/class/graphics/fb0
+    if [ -d "$file" ]
+    then
+            set_perms $file/idle_time system.graphics 0664
+            set_perms $file/dynamic_fps system.graphics 0664
+            set_perms $file/dyn_pu system.graphics 0664
+            set_perms $file/modes system.graphics 0664
+            set_perms $file/mode system.graphics 0664
+            set_perms $file/msm_cmd_autorefresh_en system.graphics 0664
+    fi
+
+    # set lineptr permissions for all displays
+    for fb_cnt in 0 1 2 3
+    do
+        file=/sys/class/graphics/fb$fb_cnt
+        if [ -f "$file/lineptr_value" ]; then
+            set_perms $file/lineptr_value system.graphics 0664
+        fi
+        if [ -f "$file/msm_fb_persist_mode" ]; then
+            set_perms $file/msm_fb_persist_mode system.graphics 0664
+        fi
     done
 fi
-
-file=/sys/class/graphics/fb0
-if [ -d "$file" ]
-then
-        set_perms $file/idle_time system.graphics 0664
-        set_perms $file/dynamic_fps system.graphics 0664
-        set_perms $file/dyn_pu system.graphics 0664
-        set_perms $file/modes system.graphics 0664
-        set_perms $file/mode system.graphics 0664
-        set_perms $file/msm_cmd_autorefresh_en system.graphics 0664
-fi
-
-# set lineptr permissions for all displays
-for fb_cnt in 0 1 2 3
-do
-    file=/sys/class/graphics/fb$fb_cnt/lineptr_value
-    if [ -f "$file" ]; then
-        set_perms $file system.graphics 0664
-    fi
-done
 
 boot_reason=`cat /proc/sys/kernel/boot_reason`
 reboot_reason=`getprop ro.boot.alarmboot`
