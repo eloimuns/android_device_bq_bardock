@@ -14,10 +14,10 @@
 # limitations under the License.
 #
 
-LOCAL_PATH := device/bq/bardockpro
+LOCAL_PATH := device/bq/bardock
 
 TARGET_SPECIFIC_HEADER_PATH := $(LOCAL_PATH)/include
-TARGET_OTA_ASSERT_DEVICE := bardock,bardock-pro,bardockpro
+TARGET_OTA_ASSERT_DEVICE := bardock
 
 # Architecture
 TARGET_ARCH := arm64
@@ -197,4 +197,4 @@ TARGET_USES_WCNSS_CTRL  := true
 PRODUCT_VENDOR_MOVE_ENABLED := true
 
 # Inherit from the proprietary version
--include vendor/bq/bardockpro/BoardConfigVendor.mk
+-include vendor/bq/bardock/BoardConfigVendor.mk

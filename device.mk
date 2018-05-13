@@ -16,7 +16,7 @@
 
 $(call inherit-product, $(SRC_TARGET_DIR)/product/languages_full.mk)
 
-$(call inherit-product, vendor/bq/bardockpro/bardockpro-vendor.mk)
+$(call inherit-product, vendor/bq/bardock/bardock-vendor.mk)
 
 # Overlays
 DEVICE_PACKAGE_OVERLAYS += $(LOCAL_PATH)/overlay
@@ -250,7 +250,7 @@ PRODUCT_PACKAGES += \
 
 # Lights
 PRODUCT_PACKAGES += \
-    android.hardware.light@2.0-service.bardockpro
+    android.hardware.light@2.0-service.bardock
 
 # Media
 PRODUCT_PACKAGES += \
